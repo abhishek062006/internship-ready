@@ -8,9 +8,9 @@ import app
 def fixture():
     rng = random.Random(71)
     out = io.StringIO(); w = csv.writer(out)
-    w.writerow(app.FEATURES + ['selected'])
+    w.writerow(app.CSV_FIELDS + ['selected'])
     for i in range(100):
-        w.writerow([round(rng.uniform(4,10),2),rng.randint(0,100),rng.randint(0,6),rng.randint(0,4),rng.randint(0,100),rng.randint(0,100),rng.randint(0,12),rng.randint(0,100),i % 2])
+        w.writerow([round(rng.uniform(4,10),2),rng.choice(['Python|Java', 'C++', '', 'JavaScript|SQL']),rng.randint(0,6),rng.randint(0,4),rng.randint(0,100),rng.randint(0,100),rng.randint(0,12),rng.randint(0,100),i % 2])
     return out.getvalue()
 
 class AppTests(unittest.TestCase):
@@ -37,11 +37,31 @@ class AppTests(unittest.TestCase):
         prediction=app.predict(dict(zip(app.FEATURES,app.TARGETS)))
         self.assertEqual(prediction['mode'],'trained')
         self.assertTrue(0 <= prediction['probability'] <= 1)
-        self.assertEqual(len(prediction['effects']),8)
+        self.assertEqual(len(prediction['effects']),7)
+
+    def test_languages_are_separate_inputs_not_scores(self):
+        data = dict(zip(app.FEATURES, app.TARGETS))
+        base = app.predict(data)
+        data['coding_languages'] = ['Java', 'Python', 'Python']
+        result = app.predict(data)
+        self.assertEqual(result['coding_languages'], ['Python', 'Java'])
+        self.assertEqual(result['readiness'], base['readiness'])
+        values = app.profile(data)
+        self.assertEqual(len(values), len(app.FEATURES) + len(app.LANGUAGES))
+        self.assertEqual(sum(values[len(app.FEATURES):]), 2)
+        data['coding_languages'] = ['Python', 'Klingon']
+        with self.assertRaises(ValueError): app.predict(data)
+        data['coding_languages'] = 75
+        with self.assertRaises(ValueError): app.predict(data)
+
+    def test_legacy_score_is_rejected(self):
+        data = dict(zip(app.FEATURES, app.TARGETS))
+        data['technical_skills'] = 75
+        with self.assertRaisesRegex(ValueError, 'coding_languages'): app.predict(data)
 
     def test_reject_bad_dataset(self):
         with self.assertRaises(ValueError): app.train('name,selected\nSomeone,1','bad')
-        with self.assertRaises(ValueError): app.train(','.join(app.FEATURES+['selected'])+'\n','empty')
+        with self.assertRaises(ValueError): app.train(','.join(app.CSV_FIELDS+['selected'])+'\n','empty')
 
     def test_conflicting_duplicates_rejected(self):
         data=fixture().splitlines()

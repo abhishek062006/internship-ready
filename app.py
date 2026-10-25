@@ -10,13 +10,27 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).parent
-FEATURES = ['cgpa', 'technical_skills', 'projects', 'certifications', 'aptitude', 'communication', 'internship_experience', 'interview']
-MAXIMA = [10, 100, 20, 20, 100, 100, 24, 100]
-TARGETS = [7.5, 70, 3, 2, 70, 70, 3, 70]
-LABELS = ['CGPA', 'Technical skills', 'Projects', 'Certifications', 'Aptitude', 'Communication', 'Internship experience', 'Interview']
-ACTIONS = ['Review weak subjects and build a weekly study plan.', 'Practice coding and document one applied skill each week.', 'Build and deploy a project with a clear README and tests.', 'Complete a relevant certification and apply it in a project.', 'Practice timed numerical and logical reasoning sets.', 'Record a two-minute project explanation and ask for feedback.', 'Seek a short supervised project, volunteering role, or internship.', 'Practice a mock interview and prepare concrete project examples.']
+FEATURES = ['cgpa', 'projects', 'certifications', 'aptitude', 'communication', 'internship_experience', 'interview']
+MAXIMA = [10, 20, 20, 100, 100, 24, 100]
+TARGETS = [7.5, 3, 2, 70, 70, 3, 70]
+LABELS = ['CGPA', 'Projects', 'Certifications', 'Aptitude', 'Communication', 'Internship experience', 'Interview']
+ACTIONS = ['Review weak subjects and build a weekly study plan.', 'Build and deploy a project with a clear README and tests.', 'Complete a relevant certification and apply it in a project.', 'Practice timed numerical and logical reasoning sets.', 'Record a two-minute project explanation and ask for feedback.', 'Seek a short supervised project, volunteering role, or internship.', 'Practice a mock interview and prepare concrete project examples.']
+LANGUAGES = ['Python', 'Java', 'C', 'C++', 'JavaScript', 'TypeScript', 'C#', 'Go', 'Rust', 'Kotlin', 'Swift', 'PHP', 'Ruby', 'R', 'SQL']
+CSV_FIELDS = ['cgpa', 'coding_languages'] + FEATURES[1:]
+MODEL_LABELS = LABELS + ['Language: ' + language for language in LANGUAGES]
 STATE = None
 LOCK = threading.Lock()
+
+def coding_languages(data):
+    if 'technical_skills' in data:
+        raise ValueError('Choose coding_languages by name. The old technical_skills numeric score is no longer supported.')
+    raw = data.get('coding_languages', [])
+    if isinstance(raw, str):
+        raw = [] if not raw.strip() else [v.strip() for v in raw.split('|')]
+    if not isinstance(raw, list) or any(not isinstance(v, str) or v not in LANGUAGES for v in raw):
+        raise ValueError('coding_languages: choose supported language names, not a numeric score.')
+    return [language for language in LANGUAGES if language in raw]
+
 
 def profile(data, missing=False):
     values = []
@@ -34,7 +48,8 @@ def profile(data, missing=False):
         if key in ('projects', 'certifications', 'internship_experience') and not value.is_integer():
             raise ValueError(f'{key}: expected a whole number.')
         values.append(value)
-    return values
+    languages = coding_languages(data)
+    return values + [int(language in languages) for language in LANGUAGES]
 
 def train(text, source):
     # Dependencies are optional until real training is requested.
@@ -53,7 +68,7 @@ def train(text, source):
     except ImportError:
         raise ValueError('Training needs scikit-learn. Run pip install -r requirements.txt and restart.')
     reader = csv.DictReader(io.StringIO(text.lstrip('\ufeff')))
-    if reader.fieldnames != FEATURES + ['selected']:
+    if reader.fieldnames != CSV_FIELDS + ['selected']:
         raise ValueError('CSV headers must exactly match the downloadable template, in order. No personal identifiers.')
     records, seen, removed = [], set(), 0
     for number, row in enumerate(reader, 2):
@@ -91,16 +106,16 @@ def train(text, source):
     comparison.sort(key=lambda r: r['cv_f1'], reverse=True)
     name = comparison[0]['name']; model = fitted[name].fit(a, c); pred = model.predict(b)
     imp = permutation_importance(model, b, d, scoring='f1', n_repeats=5, random_state=42)
-    report = {'mode': 'trained', 'source': source[:120], 'model': name, 'rows': len(y), 'duplicates_removed': removed, 'missing_cells': int(np.isnan(X).sum()), 'train_rows': len(c), 'test_rows': len(d), 'class_counts': {'not_selected': int(sum(y == 0)), 'selected': int(sum(y == 1))}, 'metrics': {'accuracy': accuracy_score(d, pred), 'precision': precision_score(d, pred, zero_division=0), 'recall': recall_score(d, pred, zero_division=0), 'f1': f1_score(d, pred, zero_division=0)}, 'confusion_matrix': confusion_matrix(d, pred, labels=[0, 1]).tolist(), 'comparison': comparison, 'importance': [{'feature': label, 'value': float(value)} for label, value in zip(LABELS, imp.importances_mean)]}
+    report = {'mode': 'trained', 'schema': 'coding-languages-v1', 'language_options': LANGUAGES, 'source': source[:120], 'model': name, 'rows': len(y), 'duplicates_removed': removed, 'missing_cells': int(np.isnan(X).sum()), 'train_rows': len(c), 'test_rows': len(d), 'class_counts': {'not_selected': int(sum(y == 0)), 'selected': int(sum(y == 1))}, 'metrics': {'accuracy': accuracy_score(d, pred), 'precision': precision_score(d, pred, zero_division=0), 'recall': recall_score(d, pred, zero_division=0), 'f1': f1_score(d, pred, zero_division=0)}, 'confusion_matrix': confusion_matrix(d, pred, labels=[0, 1]).tolist(), 'comparison': comparison, 'importance': [{'feature': label, 'value': float(value)} for label, value in zip(MODEL_LABELS, imp.importances_mean)]}
     return {'model': model, 'report': report}
 
 def predict(data):
     x = profile(data)
     with LOCK:
         state = STATE
-    readiness = round(sum(min(v/t, 1) for v, t in zip(x, TARGETS)) / 8 * 100)
+    readiness = round(sum(min(v/t, 1) for v, t in zip(x, TARGETS)) / len(TARGETS) * 100)
     insights = [{'feature': label, 'value': v, 'benchmark': target, 'strength': v >= target, 'action': action} for label, v, target, action in zip(LABELS, x, TARGETS, ACTIONS)]
-    result = {'mode': 'demo', 'readiness': readiness, 'insights': insights, 'prediction': None, 'probability': None, 'effects': []}
+    result = {'mode': 'demo', 'readiness': readiness, 'insights': insights, 'prediction': None, 'probability': None, 'effects': [], 'coding_languages': coding_languages(data)}
     if state:
         m = state['model']; probability = float(m.predict_proba([x])[0][1])
         effects = []

@@ -41,13 +41,13 @@ No real labeled dataset was supplied. No trained model or fabricated metrics shi
 Exact headers and order:
 
 ```csv
-cgpa,technical_skills,projects,certifications,aptitude,communication,internship_experience,interview,selected
+cgpa,coding_languages,projects,certifications,aptitude,communication,internship_experience,interview,selected
 ```
 
 | Column | Meaning | Allowed range |
 |---|---|---|
 | cgpa | CGPA on a 10 point scale | 0–10 |
-| technical_skills | Assessed technical proficiency | 0–100 |
+| coding_languages | Languages used, separated by `|` (e.g. `Python` or `Python&#124;Java`) | Supported names below, or blank for none |
 | projects | Completed project count | integer 0–20 |
 | certifications | Relevant completed certification count | integer 0–20 |
 | aptitude | Aptitude assessment score | 0–100 |
@@ -56,13 +56,13 @@ cgpa,technical_skills,projects,certifications,aptitude,communication,internship_
 | interview | Interview assessment score | 0–100 |
 | selected | Observed outcome | exactly 0 or 1 |
 
-Minimum 50 unique profiles and 15 records in each class. Maximum 10,000 rows and 2 MB request size (UI accepts files up to 1.9 MB to allow JSON overhead). Extra columns, invalid ranges, nonfinite numbers, missing labels and conflicting labels for identical profiles are rejected. Identical profiles with the same label are deduplicated. Blank feature values are accepted in datasets; every feature must contain an observed value. Training uses median imputation within each fold. Profile form fields cannot be blank.
+Minimum 50 unique profiles and 15 records in each class. Maximum 10,000 rows and 2 MB request size (UI accepts files up to 1.9 MB to allow JSON overhead). Extra columns, invalid ranges, nonfinite numbers, missing labels and conflicting labels for identical profiles are rejected. Identical profiles with the same label are deduplicated. Blank numeric feature values are accepted in datasets. Every numeric feature must contain an observed value. A blank coding_languages cell explicitly means no languages selected. Training uses median imputation within each fold. Profile form fields cannot be blank.
 
 Collect consistent assessments from a documented rubric. Do not upload names, emails, IDs, protected attributes, or confidential information. CSV is parsed as data; spreadsheets, scripts, pickle files and user-supplied models are not accepted. Formula-like or arbitrary text values fail numeric validation. No uploaded file is executed or written to disk.
 
 ## Model and evaluation
 
-Stratified 80:20 train/test split, seed 42. Three-fold stratified cross-validation on the training portion selects the highest mean F1 from logistic regression, decision tree, random forest, and SVM. Median imputation and standardization are inside each pipeline, preventing preprocessing leakage. Class weighting addresses imbalance. All eight input features are retained. The chosen pipeline is fitted on the training split only; the test set is used once for final accuracy, precision, recall, F1, confusion matrix, and post-selection permutation analysis. Positive label is selected (1). Zero-denominator precision/recall/F1 are reported as zero.
+Stratified 80:20 train/test split, seed 42. Three-fold stratified cross-validation on the training portion selects the highest mean F1 from logistic regression, decision tree, random forest, and SVM. Median imputation and standardization are inside each pipeline, preventing preprocessing leakage. Class weighting addresses imbalance. The seven numeric inputs and a binary indicator for each supported coding language form the model inputs. Each indicator records whether that language is selected, without assigning proficiency scores or ranking languages. The chosen pipeline is fitted on the training split only; the test set is used once for final accuracy, precision, recall, F1, confusion matrix, and post-selection permutation analysis. Positive label is selected (1). Zero-denominator precision/recall/F1 are reported as zero.
 
 The final model is intentionally not refitted on the held-out test rows, so the evaluated model and prediction model match. CV standard deviations describe fold variation, not confidence intervals. Probabilities are uncalibrated model estimates. The confusion matrix explicitly labels actual rows and predicted columns. Downloadable JSON records provenance, sample sizes, class balance, deduplication/missing counts, model comparison, metrics, and permutation importance.
 
@@ -70,7 +70,7 @@ Global permutation importance reports mean held-out F1 decrease over five shuffl
 
 ## Benchmark assumptions
 
-The deck does not prescribe scales, cutoffs or a readiness formula. This implementation defines the scales above and benchmarks: CGPA 7.5; technical skills 70; projects 3; certifications 2; aptitude 70; communication 70; experience 3 months; interview 70. The readiness index is the average of `min(value / benchmark, 1)` across all eight fields, expressed as a percentage. A field meeting its benchmark is a strength; otherwise it receives a concrete practice recommendation. These are editable preparation assumptions, not validated hiring criteria. Readiness headings use index thresholds of 55 and 80.
+The deck does not prescribe scales, cutoffs or a readiness formula. This implementation defines the scales above and benchmarks: CGPA 7.5; projects 3; certifications 2; aptitude 70; communication 70; experience 3 months; interview 70. The readiness index is the average of `min(value / benchmark, 1)` across the seven numeric fields, expressed as a percentage. A field meeting its benchmark is a strength; otherwise it receives a concrete practice recommendation. These are editable preparation assumptions, not validated hiring criteria. Readiness headings use index thresholds of 55 and 80.
 
 Interview scores can be unavailable before hiring, and may leak later-stage information into an earlier-stage prediction. Only use this model at a point where all inputs would actually be known. For pre-interview deployment, develop and separately validate a model that excludes interview scores.
 
@@ -131,3 +131,11 @@ train or clear the same model, and its report is visible to all visitors. Use on
 non-confidential demonstration data. Restarting the service clears its model.
 Authenticated users, isolated model state, training job limits and a production
 server are required before use with private datasets or institutional users.
+
+## Coding-language input
+
+Technical skills now uses language checkboxes rather than a numeric score. Supported choices are Python, Java, C, C++, JavaScript, TypeScript, C#, Go, Rust, Kotlin, Swift, PHP, Ruby, R and SQL. Select every language you have used, or leave them unchecked if you are starting out. Names are case-sensitive in CSV/API requests.
+
+The profile API accepts `coding_languages` as a JSON array, for example `["Python", "Java"]`. CSV records use `Python|Java` in the `coding_languages` column. The downloadable template reflects this new schema. Old CSV files with a numeric `technical_skills` column must be updated with actual language names before training. Numeric technical scores cannot be converted to languages.
+
+The readiness index now covers only seven numeric factors. Language count does not increase the index or imply proficiency. Model training encodes each language separately as present/absent and reports importance per language. Numeric what-if checks leave language selections unchanged. Models must be retrained using the updated dataset schema.
