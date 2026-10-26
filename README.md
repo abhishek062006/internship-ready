@@ -1,6 +1,22 @@
 # Internship Ready
 
-A local full-stack implementation of **Student Internship Selection Prediction**, based on the 11-slide Team 06 academic proposal (KG Reddy College of Engineering and Technology, CSE AI & ML, 2026–27).
+The app now starts with a **pretrained educational ML model** using AI Explorer's public Internship Selection Prediction Dataset, Kaggle version 1, MIT license. The source is explicitly **synthetic**. No observed real hiring outcomes are claimed.
+
+Source: https://www.kaggle.com/datasets/aiexplorer77/internship-selection-prediction-dataset
+
+## Bundled training and limitations
+
+- 10,000 source records, 8,000 train and 2,000 untouched test records.
+- Three-fold training-only selection compares Logistic Regression, Decision Tree, Random Forest and SVM by F1.
+- The selected Random Forest achieved 53.85% accuracy and 0.6370 F1 on the test split. The majority-class baseline achieved 73.75% accuracy and 0.8489 F1. The app discloses that the model does not beat this baseline. These are limited educational results, not real-world hiring accuracy.
+- Only CGPA, projects, certifications, aptitude, communication and interview scores are used. Coding-language names and internship months are absent from this source and are explicitly excluded rather than fabricated. They remain available for readiness guidance and user-uploaded datasets.
+- Source aptitude, communication and interview values use 1–10. The prepared CSV multiplies them by ten for the app's 0–100 fields.
+- Inputs outside the dataset's observed feature ranges return readiness guidance without a model prediction.
+- Full source attribution, hashes, mapping, license and limitations: `data/provenance.json`, `data/README.md`, `data/LICENSE.txt`. Actual results: `data/public_report.json`.
+
+Rebuild with `python train_public.py` after installing requirements. The script generates the bundled `data/public_model.joblib` artifact and report. Only this repository-owned artifact is loaded at startup. Model uploads are never accepted. The downloadable report includes the majority baseline and dataset provenance.
+
+On restart or reset, the public model returns automatically. User-trained models stay in shared process memory only.
 
 ## Run
 
@@ -34,7 +50,7 @@ Open **http://127.0.0.1:8000**. Use Ctrl+C to stop. Set the `PORT` environment v
 4. Supply dataset provenance, confirm permission and observed labels, then train. The app compares four models and reports actual held-out results for the winner.
 5. Return to the studio and analyze a profile again to receive a model classification, estimated probability, strengths, gaps, and model sensitivity checks.
 
-No real labeled dataset was supplied. No trained model or fabricated metrics ship with this project. Synthetic software test fixtures are confined to tests and are never loaded by the application.
+The bundled synthetic public dataset and trained model power the educational mode. Separate tiny synthetic fixtures remain confined to software tests. Real hiring validation is still pending.
 
 ## CSV contract
 
@@ -91,7 +107,7 @@ Literature review accuracies on slides 6–7 describe other studies and are not 
 
 ## Architecture and privacy
 
-Vanilla HTML/CSS/JavaScript frontend; Python standard-library HTTP backend; scikit-learn ML. No Node build, CDN, API key or database required. Assets are local. Model/data remain in process memory and disappear on restart or **Clear trained model**. Evaluation reports persist only if downloaded. `/api/status` provides the current model report; `/api/predict` accepts a profile; `/api/train` accepts JSON containing CSV text, provenance and consent; `/api/reset` clears the model. Prediction and training state swaps are synchronized. Failed training leaves the existing model intact.
+Vanilla HTML/CSS/JavaScript frontend; Python standard-library HTTP backend; scikit-learn ML. No Node build, CDN, API key or database required. Assets are local. User-uploaded model/data remain in process memory and disappear on restart or reset. The bundled public model loads again from the repository. Evaluation reports persist only if downloaded. `/api/status` provides the current model report; `/api/predict` accepts a profile; `/api/train` accepts JSON containing CSV text, provenance and consent; `/api/reset` clears the model. Prediction and training state swaps are synchronized. Failed training leaves the existing model intact.
 
 The server binds to loopback, rejects cross-origin browser POSTs, limits request size and accepts only fixed static paths. It is intended for a trusted single-user local demonstration. No authentication, TLS, multi-user isolation, rate limiting, durable storage or production server is included. Do not expose it on a network. Production use needs authenticated job handling, limits, monitoring, bias review, retention controls and independent validation.
 

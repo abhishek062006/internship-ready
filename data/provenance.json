@@ -1,0 +1,35 @@
+{
+  "title": "Internship Selection Prediction Dataset",
+  "author": "AI Explorer (aiexplorer77)",
+  "url": "https://www.kaggle.com/datasets/aiexplorer77/internship-selection-prediction-dataset",
+  "version": 1,
+  "license": "MIT",
+  "data_kind": "synthetic",
+  "original_rows": 10000,
+  "original_sha256": "af25b3b468668f82ee5469642deacf74d9c656c062eca13f6f0fc2ea763f762b",
+  "training_csv_sha256": "1833e7ae5427a1f2a482870c89408c99fd8831442c604080f8248d73562c179a",
+  "mapping": {
+    "cgpa": "CGPA",
+    "projects": "projects_count",
+    "certifications": "certifications_count",
+    "aptitude": "aptitude_score",
+    "communication": "communication_score",
+    "interview": "interview_score",
+    "selected": "selected"
+  },
+  "transformations": [
+    "Aptitude, communication and interview scores multiplied by 10 to align the source 1\u201310 scale with the app 0\u2013100 fields.",
+    "Removed student_id and all other unused columns. No new labels or feature values were generated."
+  ],
+  "excluded_inputs": [
+    "coding_languages",
+    "internship_experience"
+  ],
+  "limitations": [
+    "Educational synthetic data, not observed hiring outcomes.",
+    "No language names or internship duration measurements exist in this source.",
+    "Some source selection factors are unavailable in this form, so performance can be limited.",
+    "Predictions outside the source ranges are unsupported.",
+    "Metrics describe this dataset only and are not hiring accuracy."
+  ]
+}

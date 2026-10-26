@@ -51,7 +51,7 @@ def profile(data, missing=False):
     languages = coding_languages(data)
     return values + [int(language in languages) for language in LANGUAGES]
 
-def train(text, source):
+def train(text, source, active_indices=None):
     # Dependencies are optional until real training is requested.
     try:
         import numpy as np
@@ -92,6 +92,9 @@ def train(text, source):
     if len(records) < 50:
         raise ValueError('Provide at least 50 unique labeled profiles, with at least 15 per class.')
     X = np.array([r[0] for r in records]); y = np.array([r[1] for r in records])
+    indices = list(range(len(MODEL_LABELS))) if active_indices is None else active_indices
+    X = X[:, indices]
+    model_labels = [MODEL_LABELS[i] for i in indices]
     if min(sum(y == 0), sum(y == 1)) < 15 or np.isnan(X).all(axis=0).any():
         raise ValueError('Need at least 15 profiles per class and observed values in every feature.')
     # Keep the test split untouched until selection by training-only cross validation.
@@ -106,8 +109,12 @@ def train(text, source):
     comparison.sort(key=lambda r: r['cv_f1'], reverse=True)
     name = comparison[0]['name']; model = fitted[name].fit(a, c); pred = model.predict(b)
     imp = permutation_importance(model, b, d, scoring='f1', n_repeats=5, random_state=42)
-    report = {'mode': 'trained', 'schema': 'coding-languages-v1', 'language_options': LANGUAGES, 'source': source[:120], 'model': name, 'rows': len(y), 'duplicates_removed': removed, 'missing_cells': int(np.isnan(X).sum()), 'train_rows': len(c), 'test_rows': len(d), 'class_counts': {'not_selected': int(sum(y == 0)), 'selected': int(sum(y == 1))}, 'metrics': {'accuracy': accuracy_score(d, pred), 'precision': precision_score(d, pred, zero_division=0), 'recall': recall_score(d, pred, zero_division=0), 'f1': f1_score(d, pred, zero_division=0)}, 'confusion_matrix': confusion_matrix(d, pred, labels=[0, 1]).tolist(), 'comparison': comparison, 'importance': [{'feature': label, 'value': float(value)} for label, value in zip(MODEL_LABELS, imp.importances_mean)]}
-    return {'model': model, 'report': report}
+    report = {'mode': 'trained', 'schema': 'coding-languages-v1', 'language_options': LANGUAGES, 'source': source[:120], 'model': name, 'rows': len(y), 'duplicates_removed': removed, 'missing_cells': int(np.isnan(X).sum()), 'train_rows': len(c), 'test_rows': len(d), 'class_counts': {'not_selected': int(sum(y == 0)), 'selected': int(sum(y == 1))}, 'metrics': {'accuracy': accuracy_score(d, pred), 'precision': precision_score(d, pred, zero_division=0), 'recall': recall_score(d, pred, zero_division=0), 'f1': f1_score(d, pred, zero_division=0)}, 'confusion_matrix': confusion_matrix(d, pred, labels=[0, 1]).tolist(), 'comparison': comparison, 'importance': [{'feature': label, 'value': float(value)} for label, value in zip(model_labels, imp.importances_mean)]}
+    from sklearn.dummy import DummyClassifier
+    baseline = DummyClassifier(strategy='most_frequent').fit(a, c).predict(b)
+    report['baseline'] = {'name': 'Always predict the training majority class', 'accuracy': float(accuracy_score(d, baseline)), 'f1': float(f1_score(d, baseline, zero_division=0))}
+    report['active_inputs'] = model_labels
+    return {'model': model, 'report': report, 'active_indices': indices}
 
 def predict(data):
     x = profile(data)
@@ -117,12 +124,21 @@ def predict(data):
     insights = [{'feature': label, 'value': v, 'benchmark': target, 'strength': v >= target, 'action': action} for label, v, target, action in zip(LABELS, x, TARGETS, ACTIONS)]
     result = {'mode': 'demo', 'readiness': readiness, 'insights': insights, 'prediction': None, 'probability': None, 'effects': [], 'coding_languages': coding_languages(data)}
     if state:
-        m = state['model']; probability = float(m.predict_proba([x])[0][1])
+        indices = state.get('active_indices', list(range(len(x))))
+        model_x = [x[i] for i in indices]
+        meta = state['report']
+        result.update(data_kind=meta.get('data_kind', 'user-supplied'), source=meta['source'], excluded_inputs=meta.get('excluded_inputs', []), model_warning=meta.get('baseline_comparison', ''))
+        outside = [LABELS[i] for i, bounds in state.get('input_ranges', {}).items() if not bounds[0] <= x[i] <= bounds[1]]
+        if outside:
+            result.update(mode='unsupported', message='Outside the bundled dataset range: ' + ', '.join(outside) + '. Readiness guidance remains available.')
+            return result
+        m = state['model']; probability = float(m.predict_proba([model_x])[0][1])
         effects = []
         for i, target in enumerate(TARGETS):
-            changed = x.copy(); changed[i] = target
+            if i not in indices: continue
+            changed = model_x.copy(); changed[indices.index(i)] = target
             effects.append({'feature': LABELS[i], 'change': float(m.predict_proba([changed])[0][1]) - probability})
-        result.update(mode='trained', prediction='Likely to be Selected' if int(m.predict([x])[0]) else 'Not Selected', probability=probability, model=state['report']['model'], effects=effects)
+        result.update(mode='trained', prediction='Likely to be Selected' if int(m.predict([model_x])[0]) else 'Not Selected', probability=probability, model=state['report']['model'], effects=effects)
     return result
 
 class Handler(BaseHTTPRequestHandler):
@@ -136,6 +152,13 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 report = STATE['report'] if STATE else {'mode': 'demo'}
             return self.reply(report)
+        if path == '/public-dataset.csv':
+            body = (ROOT / 'data' / 'internship_public.csv').read_bytes()
+            self.send_response(200); self.send_header('Content-Type', 'text/csv; charset=utf-8'); self.send_header('Content-Disposition', 'attachment; filename=internship_public.csv'); self.end_headers(); self.wfile.write(body)
+            return
+        public_files = {'/api/dataset': 'provenance.json', '/api/public-evaluation': 'public_report.json'}
+        if path in public_files:
+            return self.reply(json.loads((ROOT / 'data' / public_files[path]).read_text()))
         files = {'/': ('index.html', 'text/html'), '/app.js': ('app.js', 'text/javascript'), '/style.css': ('style.css', 'text/css'), '/template.csv': ('template.csv', 'text/csv')}
         if path not in files:
             return self.reply({'error': 'Not found'}, 404)
@@ -168,15 +191,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(new_state['report'])
             if self.path == '/api/reset':
                 with LOCK:
-                    STATE = None
-                return self.reply({'mode': 'demo'})
+                    STATE = load_bundled_model()
+                return self.reply(STATE['report'] if STATE else {'mode': 'demo'})
             return self.reply({'error': 'Not found'}, 404)
         except (ValueError, TypeError, KeyError, csv.Error) as exc:
             self.reply({'error': str(exc)}, 400)
         except Exception:
             self.reply({'error': 'Training failed. Check the dataset and server logs.'}, 500)
 
+def load_bundled_model():
+    # Only deserialize the model built by this repository. User model uploads are never accepted.
+    import joblib
+    path = ROOT / 'data' / 'public_model.joblib'
+    return joblib.load(path) if path.exists() else None
+
+
 if __name__ == '__main__':
+    STATE = load_bundled_model()
     port = int(os.environ.get('PORT', 8000))
     host = os.environ.get('HOST', '127.0.0.1')
     print(f'Internship Ready: http://{host}:{port}', flush=True)

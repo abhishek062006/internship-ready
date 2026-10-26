@@ -59,6 +59,33 @@ class AppTests(unittest.TestCase):
         data['technical_skills'] = 75
         with self.assertRaisesRegex(ValueError, 'coding_languages'): app.predict(data)
 
+    def test_bundled_model_uses_supported_inputs_only(self):
+        app.STATE = app.load_bundled_model()
+        report = app.STATE['report']
+        self.assertEqual(report['data_kind'], 'synthetic')
+        self.assertEqual(report['rows'], 10000)
+        self.assertEqual(report['train_rows'] + report['test_rows'], 10000)
+        self.assertEqual(len(report['importance']), 6)
+        self.assertLess(report['metrics']['f1'], report['baseline']['f1'])
+        data = dict(zip(app.FEATURES, app.TARGETS))
+        first = app.predict(data)
+        data['coding_languages'] = ['Python', 'Java']
+        data['internship_experience'] = 24
+        second = app.predict(data)
+        self.assertEqual(first['probability'], second['probability'])
+        self.assertEqual(second['data_kind'], 'synthetic')
+        self.assertEqual(len(second['effects']), 6)
+        data['cgpa'] = 4
+        unsupported = app.predict(data)
+        self.assertEqual(unsupported['mode'], 'unsupported')
+        self.assertIsNone(unsupported['probability'])
+
+    def test_bundled_dataset_provenance_hash(self):
+        import hashlib, json
+        meta = json.loads((app.ROOT / 'data/provenance.json').read_text())
+        digest = hashlib.sha256((app.ROOT / 'data/internship_public.csv').read_bytes()).hexdigest()
+        self.assertEqual(digest, meta['training_csv_sha256'])
+
     def test_reject_bad_dataset(self):
         with self.assertRaises(ValueError): app.train('name,selected\nSomeone,1','bad')
         with self.assertRaises(ValueError): app.train(','.join(app.CSV_FIELDS+['selected'])+'\n','empty')
